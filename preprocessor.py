@@ -111,9 +111,11 @@ def field_test_information(
         print(f"{preprocessedDataFolderName} has been created in {cwd}")
         print("Proceed to STEP 1")
 
-    return fieldTestParameters, change_history
+    ch_bound_0 = len(change_history)
 
-def open_file(filename):
+    return fieldTestParameters, change_history, ch_bound_0
+
+def open_kestrel_file(filename):
     delay_time = 0.1
     print(f"Locating \"{filename}\"", end="")
 
@@ -229,7 +231,7 @@ def open_file(filename):
 
     return df, prologue, columns, headers, units, timedeltas_read
 
-def error_check(df):
+def kestrel_error_check(df):
     #LOOK FOR ANY CORRUPT FIELDS, NAN, ETC
     #ERROR CHECKING ON UNITS 
     indices = []
@@ -302,6 +304,37 @@ def error_check(df):
     #check nlls reference https://www.geeksforgeeks.org/check-for-nan-in-pandas-dataframe/
 
     return asterisks, indices, invalidcols, nullcols
+
+def clean_kestrel_data(df, error_value, expected_dtypes, asterisks, invalidcols, change_history, ch_bound_0):
+    
+    change_history = change_history[:ch_bound_0]
+
+    asterisks = df != "***"
+    df = df.where(asterisks, error_value)
+    for col in invalidcols:
+        change_history.append(f"All asterisks in the {col} column were replaced with a {error_value}\n")
+        print(change_history[-1])
+
+    #Convert header data types to expected data types
+    df[df.columns[0]] = pd.to_datetime(df[df.columns[0]])
+    change_history.append(f"The {df.columns[0]} column was converted to type datetime\n")
+    print(f"The {df.columns[0]} column was converted to type datetime\n")
+
+    for col in expected_dtypes:
+        if col in df:
+            df[col] = df[col].astype(expected_dtypes[col])
+            change_history.append(f"The {col} column was converted to type {expected_dtypes[col]}\n")
+            print(change_history[-1])
+
+    ch_bound_1 = len(change_history)
+
+    print("Data types have been successfully changed")
+    print("\n")
+    print(df.dtypes)
+    print("\n")
+    print("Proceed to STEP 3")
+
+    return df, change_history, ch_bound_1
 
 def calculate_timedeltas(df, columns, timedeltas_read, change_history):
     if not timedeltas_read:
@@ -982,8 +1015,8 @@ def review_baseline(baseline_series, AOG_series, baseline_ranges, baseline_metho
     ab.line("time", "alt", source=source, color="orange", legend_label = "Barometric Altitude")
     ab.circle("time", "alt", source=source, size = dot_size, color="orange")
     
-    if baseline_method == "LINEAR":
-        ab.line("time", "ab", source=source, color="green", line_width=2, legend_label = "Baseline Altitude")
+    
+    ab.line("time", "ab", source=source, color="green", line_width=2, legend_label = "Baseline Altitude")
 
     #Highlight the selected ranges
     for period in baseline_ranges:
@@ -1087,3 +1120,28 @@ def save_preprocessed(trimmed_file_baselined, preprocessed_data_name, preprocess
     except Exception as e:
         print(e)
         print(f"Is {preprocessed_data_name}.xlsx currently open on your computer?")
+
+def standard_plots(df):
+    #Data
+    #Column Names
+    time = units["time"]
+    tdseconds = units["tdseconds"]
+    temp = units["temp"]
+    alt = units["alt"]
+    windspeed = units["windspeed"]
+    rh = units["rh"]
+    baro = units["baro"]
+    magdir = units["magdir"]
+
+    source = ColumnDataSource(data=dict(
+        index=df.index, 
+        datetime=df[time], 
+        timedelta=df[tdseconds], 
+        temp=df[temp],
+        alt=df[alt],
+        windspeed=df[windspeed],
+        rh=df[rh],
+        baro=df[baro],
+        magdir=df[magdir],
+        )
+    )
