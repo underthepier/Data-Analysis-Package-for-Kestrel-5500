@@ -21,6 +21,7 @@ units = {
     "rh": "Rel. Hum. (%)",
     "baro": "Baro. (mb)",
     "magdir": "Mag. Dir. (Degrees)",
+    "alt_baselined": "AOG (Meters)"
 }
 
 standardized_units = {
@@ -500,7 +501,6 @@ def calculate_timedelta_outliers(df, deltas):
 
     return outliers_df
 
-
 def helper_plots(df, fieldTestParameters, columns):
     #Data
     #Column Names
@@ -581,7 +581,7 @@ def helper_plots(df, fieldTestParameters, columns):
 
 
     #Time Delta vs. Index
-    f2 = figure(title = "Time Delta vs. Index", y_axis_label="Time Delta (s)", x_range=f1.x_range, **options)
+    f2 = figure(title = "Time Delta vs. Index", y_axis_label="Time Delta (s)", y_axis_type="log", x_range=f1.x_range, **options)
     #f2.yaxis.formatter = DatetimeTickFormatter(seconds=["%S"])
     f2.line("index", "timedelta", hover_color="red", source=source)
     f2.circle("index", "timedelta", size=sz, hover_color="red", source=source, selection_color = "firebrick")
@@ -592,6 +592,8 @@ def helper_plots(df, fieldTestParameters, columns):
     ]
 
     dt1 = DataTable(background = "red", source=source, columns=columns)
+
+    disclaimer_msg = Paragraph(text="""*Time Delta values equal to zero will not be plotted*""")
 
     #TIME SERIES PLOTS*************************************************************************************************
     timegraphs = {
@@ -717,7 +719,7 @@ def helper_plots(df, fieldTestParameters, columns):
     #ORGANIZING PLOTS INTO TABS********************************************
     #tab1 = Panel(child=f3, title="Temp")
     #Displaying the data
-    layout1 = row(column(children=[f1, f2]), column(children=[dt1, ranges]))
+    layout1 = row(column(children=[f1, f2, disclaimer_msg]), column(children=[dt1, ranges]))
     layout2 = row(Tabs(tabs=[tab1]), fieldtestinfo)
 
     show(column(layout1, layout2))
@@ -860,7 +862,6 @@ def save_trim(df_trim, trimmed_file_name, trimmedDataFolderName, prologue, chang
     ch_bound_2 = len(change_history)
     
     return trimmed_file, change_history, ch_bound_2, prologuepd
-
 
 def baseline(indices, change_history, ch_bound_2, data, values, method, baseline_val_constant):       
     import numpy as np
@@ -1121,22 +1122,42 @@ def save_preprocessed(trimmed_file_baselined, preprocessed_data_name, preprocess
         print(e)
         print(f"Is {preprocessed_data_name}.xlsx currently open on your computer?")
 
-def standard_plots(df):
+def standard_plots(trimmed_file_baselined, fieldTestParameters):
+    from bokeh.io import output_file
+    output_file("plots.html")
+
+    df = trimmed_file_baselined
     #Data
     #Column Names
-    time = units["time"]
-    tdseconds = units["tdseconds"]
+    datetime = units["time"]
     temp = units["temp"]
-    alt = units["alt"]
+    alt = units["alt_baselined"]
     windspeed = units["windspeed"]
     rh = units["rh"]
     baro = units["baro"]
     magdir = units["magdir"]
 
+    windspeed_min = df[windspeed].min()
+    windspeed_max = df[windspeed].max()
+
+    alt_min = df[alt].min()
+    alt_max = df[alt].max()
+
+    baro_min = df[baro].min()
+    baro_max = df[baro].max()
+
+    magdir_min = 0
+    magdir_max = 360
+
+    rh_min = df[rh].min()
+    rh_max = df[rh].max()
+
+    temp_min = df[temp].min()
+    temp_max = df[temp].max()
+
     source = ColumnDataSource(data=dict(
         index=df.index, 
-        datetime=df[time], 
-        timedelta=df[tdseconds], 
+        time=df[datetime], 
         temp=df[temp],
         alt=df[alt],
         windspeed=df[windspeed],
@@ -1145,3 +1166,251 @@ def standard_plots(df):
         magdir=df[magdir],
         )
     )
+
+    #Formatting
+    datefmt = DateFormatter(format="%F %I:%M:%S %p") #Format API reference: https://docs.bokeh.org/en/latest/docs/reference/models/widgets/tables.html?highlight=datatable#bokeh.models.DataTable
+    width = 1000
+    height = 300
+    hovercolor = "black"
+    barocolor = "orange"
+
+    #view = CDSView(source=source, filters=[IndexFilter(x)])
+    sz = 3
+
+    #FIELD TEST INFO FOR PLOTS****************************************************************
+    fieldtestinfo = Div(text=
+    f"""
+    <p>FIELD TEST: <b>{fieldTestParameters["Field Test Label"]}</b></p>
+    <p>LOCATION: <b>{fieldTestParameters["Field Test Location"]}</b></p>
+    <p>DATE: <b>{fieldTestParameters["Field Test Date"]}</b></p>
+    <p>DEVICE: <b>{fieldTestParameters["Device Nickname"]}</b></p>
+    """
+    )
+
+    #TIME SERIES PLOTS*************************************************************************************************
+    timegraphs = {
+        "Temperature vs. Time": "black", 
+        "Altitude vs. Time": "red", 
+        "Wind Speed vs. Time": "magenta", 
+        "Relative Humidity vs. Time": "navy", 
+        "Barometric Pressure vs. Time": "orange", 
+        "Magnetic Direction vs. Time": "firebrick"
+    }
+
+    hover_timeseries = HoverTool(
+        tooltips=[
+            ("Index", "@index"),
+            ("Time", "@time{%F %I:%M:%S %p}"),        
+            ("Temperature", "@temp"),  
+            ("Altitude", "@alt"),
+            ("Windspeed", "@windspeed"),
+            ("Relative Humidity", "@rh"),
+            ("Barometric Pressure", "@baro{0.000}"),
+            ("Magnetic Direction", "@magdir"),  
+        ],
+
+        formatters={
+            "@time" : "datetime",
+        },
+        #mode = "vline"
+    )
+
+    #TIME SERIES PLOTS SEPARATE******************************************************************************8
+    timeylabels = [temp, alt, windspeed, rh, baro, magdir]
+    timeysourceskeys = ["temp", "alt", "windspeed", "rh", "baro", "magdir"]
+    time_series_options = dict(tools=[hover_timeseries, "pan, wheel_zoom, box_select, tap, reset"], plot_width=700, plot_height=300)
+    p1, p2, p3, p4, p5, p6 = figure(), figure(), figure(), figure(), figure(), figure()
+    timefigures = [p1, p2, p3, p4, p5, p6]
+
+    for f, g, l, key in zip(timefigures, timegraphs, timeylabels, timeysourceskeys):
+        i = timefigures.index(f)
+        f = figure(title=g, x_range=timefigures[0].x_range, x_axis_label = "Time", y_axis_label=l, x_axis_type = "datetime", **time_series_options)
+        f.title.text_color = timegraphs[g]
+        f.yaxis.axis_label_text_color = timegraphs[g]
+        f.yaxis.major_label_text_color = timegraphs[g]
+        f.yaxis.axis_line_color = timegraphs[g]
+        f.xaxis.formatter=DatetimeTickFormatter(
+            hours="%I:%M:%S %p",
+            minutes="%I:%M:%S %p")
+        #f.background_fill_color = (204, 255, 255)
+        timefigures[i] = f
+        f.line("time", key, color=timegraphs[g], hover_color=hovercolor, source=source)
+        f.circle("time", key, color=timegraphs[g], size = sz, hover_color=hovercolor, source=source)
+
+    tab1 = Panel(child=row(column(timefigures[0:7]), fieldtestinfo), title="Time Series Plots")
+
+
+    #TIME SERIES PLOTS SUPERIMPOSED***************************************************************************************************************************************
+    superimposed1_options = dict(tools=[hover_timeseries, "pan, wheel_zoom, box_select, tap, reset"], plot_width=1000, plot_height=700)
+    superimposed1labels = [temp, windspeed]
+    superimposed1colors = ["black", "red", "magenta", "navy", "firebrick"]
+    superimposed1keys = ["temp", "windspeed"]
+    superimposed1 = figure(y_range = (windspeed_min,windspeed_max), x_axis_label = "Time", x_axis_type="datetime", **superimposed1_options)
+    superimposed1.xaxis.formatter=DatetimeTickFormatter(
+        hours="%I:%M:%S %p",
+        minutes="%I:%M:%S %p"
+    )
+
+    for key, l, c in zip(superimposed1keys, superimposed1labels, superimposed1colors):
+        superimposed1.line("time", key, color=c, hover_color="red", source=source, legend_label = l)
+        superimposed1.circle("time", key, color=c, hover_color="red", source=source, legend_label = l)
+
+    superimposed1.extra_y_ranges = {
+        "baro": Range1d(start=baro_min, end=baro_max), 
+        "alt": Range1d(start=alt_min, end=alt_max), 
+        "magdir": Range1d(start=magdir_min, end=magdir_max),
+        "temp": Range1d(start=temp_min, end=temp_max),
+        "rh": Range1d(start=rh_min, end=rh_max)
+        
+    }
+
+    #Baro
+    superimposed1.line("time", "baro", y_range_name="baro", color="orange", hover_color=hovercolor, source=source, legend_label = baro)
+    superimposed1.circle("time", "baro", y_range_name="baro", color="orange", hover_color=hovercolor, source=source, legend_label = baro)
+    superimposed1.add_layout(LinearAxis(y_range_name="baro", axis_label = baro, major_label_text_color = barocolor, axis_label_text_color = barocolor, axis_line_color=barocolor), "right")
+
+    #Mag Dir
+    magdircolor = "firebrick"
+    superimposed1.line("time", "magdir", y_range_name="magdir", color=magdircolor, hover_color=hovercolor, source=source, legend_label = magdir)
+    superimposed1.circle("time", "magdir", y_range_name="magdir", color=magdircolor, hover_color=hovercolor, source=source, legend_label = magdir)
+    superimposed1.add_layout(LinearAxis(y_range_name="magdir", axis_label = magdir, major_label_text_color = magdircolor, axis_label_text_color = magdircolor, axis_line_color=magdircolor), "right")
+
+    #Temperature
+    tempcolor = "black"
+    superimposed1.line("time", "temp", y_range_name="temp", color=tempcolor, hover_color=hovercolor, source=source, legend_label = temp)
+    superimposed1.circle("time", "temp", y_range_name="temp", color=tempcolor, hover_color=hovercolor, source=source, legend_label = temp)
+    superimposed1.add_layout(LinearAxis(y_range_name="temp", axis_label = temp, major_label_text_color = tempcolor, axis_label_text_color = tempcolor, axis_line_color=tempcolor), "left")
+
+    #Altitude
+    altcolor = "navy"
+    superimposed1.line("time", "alt", y_range_name="alt", color=altcolor, hover_color=hovercolor, source=source, legend_label = alt)
+    superimposed1.circle("time", "alt", y_range_name="alt", color=altcolor, hover_color=hovercolor, source=source, legend_label = alt)
+    superimposed1.add_layout(LinearAxis(y_range_name="alt", axis_label = alt, major_label_text_color = altcolor, axis_label_text_color = altcolor, axis_line_color=altcolor), "left")
+
+    #Relative Humidity
+    rhcolor = "magenta"
+    superimposed1.line("time", "rh", y_range_name="rh", color=rhcolor, hover_color=hovercolor, source=source, legend_label = rh)
+    superimposed1.circle("time", "rh", y_range_name="rh", color=rhcolor, hover_color=hovercolor, source=source, legend_label = rh)
+    superimposed1.add_layout(LinearAxis(y_range_name="rh", axis_label = rh, major_label_text_color = rhcolor, axis_label_text_color = rhcolor, axis_line_color=rhcolor), "right")
+
+    superimposed1.legend.click_policy= "hide"
+
+    tab2 = Panel(child=column(fieldtestinfo, superimposed1), title="Time Series Superimposed")
+
+    #ALTITUDE PROFILES*********************************************************
+    hover_altprofiles = HoverTool(
+        tooltips=[
+            ("Time", "@time{%F %I:%M:%S %p}"),
+            ("Temperature", "@temp"),
+            ("Altitude", "@alt"),
+            ("Wind Speed", "@windspeed"),
+            ("Relative Humidity", "@rh"),
+            ("Magnetic Direction", "@magdir"),
+        ],
+
+        formatters={
+            "@time" : "datetime",
+        },
+        #mode = "vline"
+    )
+
+    altgraphs = {
+        "Temperature vs. Altitude": "black", 
+        "Wind Speed vs. Altitude": "red", 
+        "Relative Humidity vs. Altitude": "magenta", 
+        "Magnetic Direction vs. Altitude": "navy", 
+    }
+    alt_profiles_options = dict(tools=[hover_altprofiles, "pan, wheel_zoom, box_select, tap, reset"], plot_width=700, plot_height=300)
+    altylabels = [temp, windspeed, rh, magdir]
+    altsourceskeys = ["temp", "windspeed", "rh", "magdir"]
+    p7, p8, p9, p10 = figure(), figure(), figure(), figure()
+    altfigures = [p7, p8, p9, p10]
+
+    for f, g, l, key in zip(altfigures, altgraphs, altylabels, altsourceskeys):
+        i = altfigures.index(f)
+        f = figure(title=g, x_range=altfigures[0].x_range, x_axis_label = "Altitude (m)", y_axis_label=l, **alt_profiles_options)
+        f.title.text_color = altgraphs[g]
+        f.yaxis.axis_label_text_color = altgraphs[g]
+        f.yaxis.major_label_text_color = altgraphs[g]
+        f.yaxis.axis_line_color = altgraphs[g]
+        altfigures[i] = f
+        
+        #f.line("alt", key, color=altgraphs[g], hover_color=hovercolor, source=trimmedvalues)
+        
+        f.circle("alt", key, color=altgraphs[g], hover_color=hovercolor, source=source)
+        
+    tab3 = Panel(child=row(column(altfigures[0:5]), fieldtestinfo), title="Altitude Profiles")
+
+    #ALTITUDE PROFILES SUPERIMPOSED**********************************************************************
+    altsuperimposed_options = dict(tools=[hover_altprofiles, "pan, wheel_zoom, box_select, tap, reset"], plot_width=1000, plot_height=700)
+
+    altsuperimposed = figure(x_axis_label= "Altitude (m)", **altsuperimposed_options)
+
+    #Temperature vs. Alt
+    altsuperimposed.line("alt", "temp", color=tempcolor, hover_color=hovercolor, source=source, legend_label = temp)
+    altsuperimposed.circle("alt", "temp", color=tempcolor, hover_color=hovercolor, source=source, legend_label = temp)
+    #altsuperimposed.add_layout(LinearAxis(y_range_name="temp", axis_label = temp, major_label_text_color = tempcolor, axis_label_text_color = tempcolor, axis_line_color = tempcolor), "right")
+
+    altsuperimposed.extra_y_ranges = {
+        "temp": Range1d(start=temp_min, end=temp_max),
+        "rh": Range1d(start=rh_min, end=rh_max), 
+        "magdir": Range1d(start=magdir_min, end=magdir_max),
+        "windspeed": Range1d(start=windspeed_min, end=windspeed_max)
+    }
+
+    #Windspeed vs. Alt
+    windspeedcolor = "red"
+    altsuperimposed.line("alt", "windspeed", color=windspeedcolor, hover_color=hovercolor, source=source, legend_label = windspeed)
+    altsuperimposed.circle("alt", "windspeed", color=windspeedcolor, hover_color=hovercolor, source=source, legend_label = windspeed)
+    #altsuperimposed.add_layout(LinearAxis(y_range_name="windspeed", axis_label = windspeed, major_label_text_color = windspeedcolor, axis_label_text_color = windspeedcolor, axis_line_color = windspeedcolor), "right")
+
+    #Relative Humidity vs. Alt
+    altsuperimposed.line("alt", "rh", color="magenta", hover_color=hovercolor, source=source, legend_label = rh, y_range_name = "rh")
+    altsuperimposed.circle("alt", "rh", color="magenta", hover_color=hovercolor, source=source, legend_label = rh, y_range_name = "rh")
+    altsuperimposed.add_layout(LinearAxis(y_range_name="rh", axis_label = rh, major_label_text_color = "magenta", axis_label_text_color = "magenta", axis_line_color = "magenta"), "left")
+
+    #Mag Dir. vs. Alt
+    magdircolor = "navy"
+    altsuperimposed.line("alt", "magdir", color=magdircolor, hover_color=hovercolor, source=source, legend_label = magdir, y_range_name = "magdir")
+    altsuperimposed.circle("alt", "magdir", color=magdircolor, hover_color=hovercolor, source=source, legend_label = magdir, y_range_name = "magdir")
+    altsuperimposed.add_layout(LinearAxis(y_range_name="magdir", axis_label = magdir, major_label_text_color = magdircolor, axis_label_text_color = magdircolor, axis_line_color = magdircolor),  "right")
+
+    altsuperimposed.legend.click_policy= "hide"
+
+    tab4 = Panel(child=column(fieldtestinfo, altsuperimposed), title="Altitude Profiles Superimposed")
+
+    #The Geoff Exclusive********************************************************************************
+    hover_geoff = HoverTool(
+        tooltips=[
+            ("Time", "@time{%F %I:%M:%S %p}"),        
+            ("Altitude", "@alt"),
+            ("Temperature", "@temp"),
+            ("Wind Speed", "@windspeed"),
+            ("Relative Humidity", "@rh"),
+            
+        ],
+
+        formatters={
+            "@time" : "datetime",
+        },
+        #mode = "vline"
+    )
+    geoff_options = dict(tools=[hover_geoff, "pan, wheel_zoom, box_select, tap, reset"], plot_width=1000, plot_height=500)
+    geoffsourcekeys = ["temp", "windspeed", "rh"]
+    geofflabels = [temp, windspeed, rh]
+    geoffcolors = ["red", "blue", "orange"]
+    geoffp = figure(y_axis_label = alt, **geoff_options)
+
+    for key, l, c in zip(geoffsourcekeys, geofflabels, geoffcolors):
+        geoffp.line(key, "alt", color=c, hover_color=hovercolor, source=source, legend_label=l)
+        geoffp.circle(key, "alt", color=c, hover_color=hovercolor, source=source, legend_label=l)
+    geoffp.legend.click_policy="hide"
+
+    tab5 = Panel(child=column(fieldtestinfo, geoffp), title="Altitude Profiles Style 2")
+
+    #ORGANIZING PLOTS INTO TABS********************************************
+    #tab1 = Panel(child=f3, title="Temp")
+    #Displaying the data
+    layout1 = Tabs(tabs=[tab1, tab2, tab3, tab4, tab5])
+
+    show(column(layout1))
